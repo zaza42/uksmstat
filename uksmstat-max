@@ -1,0 +1,37 @@
+#!/bin/lksh
+sleep=5
+cycle=10
+oldmemuse=0
+if [ -f /dev/shm/uksm.maxmemuse ]; then
+    read maxmemuse < /dev/shm/uksm.maxmemuse
+else
+    maxmemuse=0
+fi
+while : ; do
+    read memuse < /sys/kernel/mm/uksm/pages_sharing
+    while read -r line
+	do
+	    if [ "${line%:*}" = "KsmZeroPages" ]; then
+		ksmzero=${line//[a-zA-Z:]/}
+		break
+	    fi
+	done < /proc/meminfo
+    shareplususe=$(($memuse * 4096 + ${ksmzero//[a-zA-Z:]/} * 1024 ))
+    if [ $shareplususe -gt $maxmemuse ]; then
+	maxmemuse=$shareplususe
+	echo $maxmemuse > /dev/shm/uksm.maxmemuse
+    fi
+    if [ $cycle -eq 10 ] ; then
+	memuse=$(numfmt --to=iec-i --suffix=B --padding=6 $shareplususe )
+	if [ ! "$memuse" = "$oldmemuse" ]; then
+	    read scanpages < /sys/kernel/mm/uksm/pages_scanned
+	    scanpages=$(numfmt --to=si --padding=5 $scanpages )
+	    maxmemuseb=$(numfmt --to=iec-i --suffix=B --padding=6 $maxmemuse)
+	    echo `date +%T` "sharing+zero: $memuse ($maxmemuseb), pages_scanned:$scanpages"
+	    oldmemuse=$memuse
+	fi
+	cycle=0
+    fi
+    sleep $sleep
+    ((cycle++))
+done
